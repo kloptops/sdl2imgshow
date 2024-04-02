@@ -191,19 +191,7 @@ int main(int argc, char *argv[])
 
     SDL_QueryTexture(textTexture, NULL, NULL, &textRect.w, &textRect.h);
     textRect.x = (screenWidth - textRect.w) / 2;
-    textRect.y = imageRect.y + imageRect.h + 20;
-
-    // Clear screen
-    SDL_RenderClear(renderer);
-
-    // Render image
-    SDL_RenderCopy(renderer, imageTexture, NULL, &imageRect);
-
-    // Render text
-    SDL_RenderCopy(renderer, textTexture, NULL, &textRect);
-
-    // Update screen
-    SDL_RenderPresent(renderer);
+    textRect.y = (screenHeight - textRect.h) / 2;
 
     // Wait for quit event
     while (!quit)
@@ -215,6 +203,21 @@ int main(int argc, char *argv[])
                 quit = 1;
             }
         }
+
+        // Clear screen
+        SDL_RenderClear(renderer);
+
+        // Render image
+        SDL_RenderCopy(renderer, imageTexture, NULL, &imageRect);
+
+        // Render text
+        SDL_RenderCopy(renderer, textTexture, NULL, &textRect);
+
+        // Update screen
+        SDL_RenderPresent(renderer);
+
+        // 10 frames a second is fine.
+        SDL_Delay(16);
     }
 
     // Clean up
