@@ -10,12 +10,13 @@ int imageSize     = SIZE_VERTICAL;
 int imagePosition = POS_MIDLEFT;
 int textPosition  = POS_CENTER;
 int textAlignment = ALIGN_LEFT;
-int fontSize = 48;
+int fontSize      = 32;
 
-bool dropShadow = false;
+bool dropShadow   = false;
 
-bool wantQuit  = false;
-bool wantQuiet = false;
+bool wantQuit     = false;
+bool waitQuit     = false;
+bool wantQuiet    = false;
 bool keypressQuit = true;
 
 char *globalFontName       = NULL;
@@ -80,7 +81,7 @@ int main(int argc, char *argv[])
     int opt;
     bool finished = false;
 
-    while (!finished && (opt = getopt(argc, argv, "z:i:f:t:c:s:d:o:qQDpPkK")) != -1)
+    while (!finished && (opt = getopt(argc, argv, "z:i:f:t:c:s:d:o:a:S:qQDpPkKwW")) != -1)
     {
         switch (opt)
         {
@@ -152,6 +153,14 @@ int main(int argc, char *argv[])
             ini_parse(NULL, "font_size", optarg);
             break;
 
+        case 'w':
+            ini_parse(NULL, "wait_quit", "y");
+            break;
+
+        case 'W':
+            ini_parse(NULL, "wait_quit", "n");
+            break;
+
         default: /* '?' */
             finished = true;
             break;
@@ -179,7 +188,7 @@ int main(int argc, char *argv[])
     // Wait for quit event
     while (!quit)
     {
-        while (SDL_PollEvent(&event))
+        while (SDL_PollEvent(&event) && !quit)
         {
             switch (event.type)
             {
@@ -189,7 +198,11 @@ int main(int argc, char *argv[])
                 if (keypressQuit && keypressQuitCount > 30)
                     quit = 1;
                 break;
+
             case SDL_CONTROLLERBUTTONUP:
+                if (waitQuit > 1)
+                    quit = 1;
+
                 break;
 
             case SDL_CONTROLLERDEVICEADDED:
@@ -390,6 +403,10 @@ void ini_parse(void *state, const char *key, const char *value)
     else if (strcasecmp(key, "quit") == 0)
     {
         wantQuit = bool_parse(value, false);
+    }
+    else if (strcasecmp(key, "wait_quit") == 0)
+    {
+        waitQuit = bool_parse(value, false);
     }
     else if (strcasecmp(key, "keypress_quit") == 0)
     {
