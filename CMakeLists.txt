@@ -19,7 +19,9 @@ include_directories(${SDL2_TTF_INCLUDE_DIRS})
 
 add_executable(
     sdl2imgshow
-    src/sdl2imgshow.c)
+    src/sdl2imgshow.c
+    src/util.c
+    )
 
 # Link libraries
 target_link_libraries(
