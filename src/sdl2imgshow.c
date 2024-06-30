@@ -14,10 +14,11 @@ int fontSize      = 32;
 
 bool dropShadow   = false;
 
-bool wantQuit     = false;
-bool waitQuit     = false;
-bool wantQuiet    = false;
-bool keypressQuit = true;
+bool wantQuit     = false;   // quit immediately
+bool waitQuit     = false;   // wait for a button press to quit
+bool keypressQuit = false;    // wait until 30 presses have been done to quit
+
+bool wantQuiet    = false;    // wait quietly
 
 char *globalFontName       = NULL;
 TTF_Font *globalFont       = NULL;
@@ -29,10 +30,12 @@ SDL_Point dropShadowOffset = {10, 10};
 SDL_Window   *window   = NULL;
 SDL_Renderer *renderer = NULL;
 
+char processWatchCmd[1024] = "";
+bool processWatch = false;
 
 void print_usage()
 {
-    printf("Usage: sdl2imgshow [-z <config_file.ini>] [-i <image_file>] [-p positon] [-f <font_file>] [-c <R,G,B>] [-d <R,G,B>] [-o x,y] [-s <font_size>] [-t <text>] [-q]\n");
+    printf("Usage: sdl2imgshow [-z <config_file.ini>] [-i <image_file>] [-p text_positon] [-f <font_file>] [-c <R,G,B>] [-d <R,G,B>] [-o x,y] [-s <font_size>] [-t <text>] [-q] [-b <process>]\n");
 }
 
 
@@ -81,7 +84,7 @@ int main(int argc, char *argv[])
     int opt;
     bool finished = false;
 
-    while (!finished && (opt = getopt(argc, argv, "z:i:f:t:c:s:d:o:a:S:qQDpPkKwW")) != -1)
+    while (!finished && (opt = getopt(argc, argv, "z:i:f:t:c:s:d:o:a:S:q:Dp:k:w:W:b:")) != -1)
     {
         switch (opt)
         {
@@ -117,6 +120,10 @@ int main(int argc, char *argv[])
             ini_parse(NULL, "image_stretch", optarg);
             break;
 
+        case 's':
+            ini_parse(NULL, "font_size", optarg);
+            break;
+
         case 'p':
             ini_parse(NULL, "text_position", optarg);
             break;
@@ -134,31 +141,24 @@ int main(int argc, char *argv[])
             break;
 
         case 'q':
-            ini_parse(NULL, "quit", "y");
-            break;
-
-        case 'Q':
-            ini_parse(NULL, "quit", "n");
+            ini_parse(NULL, "quit", optarg);
             break;
 
         case 'k':
-            ini_parse(NULL, "keypress_quit", "y");
-            break;
-
-        case 'K':
-            ini_parse(NULL, "keypress_quit", "n");
-            break;
-
-        case 's':
-            ini_parse(NULL, "font_size", optarg);
+            ini_parse(NULL, "keypress_quit", optarg);
             break;
 
         case 'w':
-            ini_parse(NULL, "wait_quit", "y");
+            ini_parse(NULL, "wait_quit", optarg);
             break;
 
         case 'W':
-            ini_parse(NULL, "wait_quit", "n");
+            ini_parse(NULL, "quiet", optarg);
+            break;
+
+        case 'b':
+            snprintf(processWatchCmd, sizeof(processWatch), "pgrep '%s'", optarg);
+            processWatch = true;
             break;
 
         default: /* '?' */
@@ -200,7 +200,7 @@ int main(int argc, char *argv[])
                 break;
 
             case SDL_CONTROLLERBUTTONUP:
-                if (waitQuit > 1)
+                if (waitQuit)
                     quit = 1;
 
                 break;
@@ -230,15 +230,19 @@ int main(int argc, char *argv[])
 
         if (!doneRender)
         {
+            printf("loop\n");
             // Clear screen
-            SDL_RenderClear(renderer);
+            // SDL_RenderClear(renderer);
 
             // Render Textures
             while (current != NULL)
             {
                 if (current->imageTexture != NULL)
                 {
-                    SDL_SetTextureColorMod(current->imageTexture, current->drawColor.r, current->drawColor.g, current->drawColor.b);
+                    SDL_SetTextureColorMod(
+                        current->imageTexture,
+                        current->drawColor.r, current->drawColor.g, current->drawColor.b);
+
                     SDL_RenderCopy(renderer, current->imageTexture, NULL, &current->imageRect);
                 }
 
@@ -255,6 +259,12 @@ int main(int argc, char *argv[])
 
         if (wantQuit == true)
             break;
+
+        if (processWatch)
+        {
+            if (system(processWatchCmd) == 0)
+                break;
+        }
     }
 
     // Clean up
@@ -399,6 +409,10 @@ void ini_parse(void *state, const char *key, const char *value)
     else if (strcasecmp(key, "shadow") == 0)
     {
         dropShadow = bool_parse(value, false);
+    }
+    else if (strcasecmp(key, "quiet") == 0)
+    {
+        wantQuiet = bool_parse(value, false);
     }
     else if (strcasecmp(key, "quit") == 0)
     {
