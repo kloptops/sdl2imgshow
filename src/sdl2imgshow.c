@@ -2,7 +2,9 @@
 
 #include "sdl2imgshow.h"
 
+Image_Object *global_image = NULL;
 Image_Object *root_image = NULL;
+Option_List *root_option = NULL;
 
 int screenWidth   = 640;
 int screenHeight  = 480;
@@ -13,6 +15,8 @@ int textAlignment = ALIGN_LEFT;
 int fontSize      = 32;
 
 bool dropShadow   = false;
+bool imageFallback = false;
+bool fontFallback  = false;
 
 bool wantQuit     = false;   // quit immediately
 bool waitQuit     = false;   // wait for a button press to quit
@@ -30,17 +34,22 @@ SDL_Point dropShadowOffset = {10, 10};
 SDL_Window   *window   = NULL;
 SDL_Renderer *renderer = NULL;
 
+const char *displayTemplate = NULL;
+
 char processWatchCmd[1024] = "";
 bool processWatch = false;
 
+
 void print_usage()
 {
-    printf("Usage: sdl2imgshow [-z <config_file.ini>] [-i <image_file>] [-p text_positon] [-f <font_file>] [-c <R,G,B>] [-d <R,G,B>] [-o x,y] [-s <font_size>] [-t <text>] [-q] [-b <process>]\n");
+    fprintf(stderr, "Usage: sdl2imgshow [-z <config_file.ini>] [-i <image_file>] [-p text_positon] [-f <font_file>] [-c <R,G,B>] [-d <R,G,B>] [-o x,y] [-s <font_size>] [-t <text>] [-q] [-b <process>]\n");
 }
 
 
 int main(int argc, char *argv[])
 {
+    char tempBuff[40];
+
     if (sdl_do_init() != 0)
     {
         sdl_do_quit();
@@ -51,13 +60,19 @@ int main(int argc, char *argv[])
     SDL_DisplayMode dm;
     if (SDL_GetCurrentDisplayMode(0, &dm) != 0)
     {
-        printf("SDL_GetCurrentDisplayMode Error: %s\n", SDL_GetError());
+        fprintf(stderr, "SDL_GetCurrentDisplayMode Error: %s\n", SDL_GetError());
         sdl_do_quit();
         return 1;
     }
 
     screenWidth  = dm.w;
     screenHeight = dm.h;
+
+    snprintf(tempBuff, sizeof(tempBuff), "%d", screenWidth);
+    set_var("width", tempBuff);
+
+    snprintf(tempBuff, sizeof(tempBuff), "%d", screenHeight);
+    set_var("height", tempBuff);
 
     // Create window
     window = SDL_CreateWindow("SDL2 Image Show",
@@ -66,7 +81,7 @@ int main(int argc, char *argv[])
 
     if (window == NULL)
     {
-        printf("SDL_CreateWindow Error: %s\n", SDL_GetError());
+        fprintf(stderr, "SDL_CreateWindow Error: %s\n", SDL_GetError());
         sdl_do_quit();
         return 1;
     }
@@ -76,89 +91,136 @@ int main(int argc, char *argv[])
     if (renderer == NULL)
     {
         SDL_DestroyWindow(window);
-        printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        fprintf(stderr, "SDL_CreateRenderer Error: %s\n", SDL_GetError());
         sdl_do_quit();
         return 1;
     }
 
-    int opt;
+    int opt=0;
     bool finished = false;
+    bool option_select_mode=false;
+    const char *option_select_file=NULL;
+    const char *default_select=NULL;
 
-    while (!finished && (opt = getopt(argc, argv, "z:i:f:t:c:s:d:o:a:S:q:Dp:k:w:W:b:")) != -1)
+    while (!finished && (opt = getopt(argc, argv, "z:i:f:t:c:s:d:o:a:S:q:Dp:k:w:W:b:T:F:G:x:X:")) != -1)
     {
         switch (opt)
         {
         case 'z':
+            // -z <config_file>: config file
             ini_read(optarg, &ini_parse, NULL);
             break;
 
+        case 'T':
+            // -T <display_template>: display template for game select mode
+            displayTemplate=optarg;
+            break;
+
+        case 'F':
+            // -F <game_id>: default game selected
+            default_select=optarg;
+            break;
+
+        case 'G':
+            // -G <option_file.ini>: option files file.
+            option_select_mode=true;
+            option_select_file=optarg;
+            break;
+
         case 'i':
+            // -i <image_file>: load an image and add it to the stack
             ini_parse(NULL, "image", optarg);
             break;
 
         case 'a':
+            // -a <text_alignment>: set text alignment
             ini_parse(NULL, "text_align", optarg);
             break;
 
         case 'f':
+            // -f <font_file>: load font.
             ini_parse(NULL, "font", optarg);
             break;
 
         case 't':
+            // -t <text>: render text to the display.
             ini_parse(NULL, "text", optarg);
             break;
 
         case 'c':
+            // -c <colour>: set text_color
             ini_parse(NULL, "text_color", optarg);
             break;
 
         case 'P':
+            // -P <image_positon>: set image_position mode
             ini_parse(NULL, "image_position", optarg);
             break;
 
         case 'S':
+            // -S <image_stretch>: set image_stretch mode
             ini_parse(NULL, "image_stretch", optarg);
             break;
 
         case 's':
+            // -s <font_size>: set the current font size.
             ini_parse(NULL, "font_size", optarg);
             break;
 
         case 'p':
+            // -p <text_position>: set text_positon.
             ini_parse(NULL, "text_position", optarg);
             break;
 
         case 'd':
+            // -d <shadow_color>: sets drop shadow colour, enables drop shadows.
             ini_parse(NULL, "shadow_color", optarg);
             break;
 
         case 'o':
+            // -o <shadow_offset>: sets shadow_offset for the drop shadow.
             ini_parse(NULL, "shadow_offset", optarg);
             break;
 
         case 'D':
+            // -D: disable drop shadow.
             ini_parse(NULL, "shadow", "n");
             break;
 
         case 'q':
+            // -q: quit immediately mode.
             ini_parse(NULL, "quit", optarg);
             break;
 
         case 'k':
+            // -k: keypress quit mode.
             ini_parse(NULL, "keypress_quit", optarg);
             break;
 
         case 'w':
+            // -W: wait quit mode.
             ini_parse(NULL, "wait_quit", optarg);
             break;
 
         case 'W':
+            // -W: quiet mode.
             ini_parse(NULL, "quiet", optarg);
             break;
 
         case 'b':
+            // -b <process_name>: watch for process_name, quit if it is running.
             snprintf(processWatchCmd, sizeof(processWatch), "pgrep '%s'", optarg);
             processWatch = true;
+            break;
+
+        case 'x':
+            // -x <key=value>: set a variable, the value supports variable substitution.
+            var_set_parse(optarg, true);
+            break;
+
+        case 'X':
+            // -X <key=value>: set a variable, the value doesn't support variable substitution.
+            var_set_parse(optarg, false);
             break;
 
         default: /* '?' */
@@ -178,6 +240,76 @@ int main(int argc, char *argv[])
 
         sdl_do_quit();
         return EXIT_FAILURE;
+    }
+
+    if (option_select_mode)
+    {
+        if (displayTemplate == NULL)
+        {
+            fprintf(stderr, "Error: option_select mode enabled without a display_template specified.\n");
+            print_usage();
+            image_quit();
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+
+            sdl_do_quit();
+            return EXIT_FAILURE;
+        }
+
+        if (ini_read(option_select_file, &option_parse, NULL))
+        {
+            print_usage();
+
+            image_quit();
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+
+            sdl_do_quit();
+            return EXIT_FAILURE;
+        }
+
+        if (root_option == NULL)
+        {
+            print_usage();
+
+            image_quit();
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+
+            sdl_do_quit();
+            return EXIT_FAILURE;            
+        }
+
+        if (default_select != NULL)
+        {
+            Option_List *current_opt = root_option;
+            Option_List *first_opt = root_option;
+
+            do
+            {
+                if (strcasecmp(current_opt->id, default_select) == 0)
+                    break;
+
+                current_opt = current_opt->next;
+            } while (current_opt != first_opt);
+
+            root_option = current_opt;
+            root_image = root_option->image_object;
+        }
+        else
+        {
+            // By default it will be on the last option, so go to the head (next).
+            root_option = root_option->next;
+            root_image = root_option->image_object;
+        }
+
+        fprintf(stderr, "= %s\n", root_option->id);
+    }
+
+    const char* db_file = NULL;
+    if (db_file = SDL_getenv("SDL_GAMECONTROLLERCONFIG_FILE"))
+    {
+        SDL_GameControllerAddMappingsFromFile(db_file);
     }
 
     SDL_Event event;
@@ -230,9 +362,9 @@ int main(int argc, char *argv[])
 
         if (!doneRender)
         {
-            printf("loop\n");
+            fprintf(stderr, "loop\n");
             // Clear screen
-            // SDL_RenderClear(renderer);
+            SDL_RenderClear(renderer);
 
             // Render Textures
             while (current != NULL)
@@ -316,11 +448,14 @@ int sdl_do_init()
         SDL_GameControllerAddMappingsFromFile(db_file);
     }
 
+    init_vars();
     return 0;
 }
 
 void sdl_do_quit()
 {
+    quit_vars();
+
     if (sdl_status > 2)
     {
         if (globalFont != NULL)
@@ -358,11 +493,61 @@ bool bool_parse(const char *value, bool defaultBool)
 }
 
 
+void var_set_parse(const char *text, bool var_sub)
+{
+    if (text == NULL)
+    {
+        fprintf(stderr, "Error: Input text is NULL\n");
+        return;
+    }
+
+    const char *delimiter = strchr(text, '=');
+    if (delimiter == NULL)
+    {
+        fprintf(stderr, "Error: No '=' found in the input text \"%s\"\n", text);
+        return;
+    }
+
+    // Calculate the lengths of the key and value
+    size_t key_len = delimiter - text;
+    size_t value_len = strlen(delimiter + 1);
+
+    // Allocate memory for key and value
+    char *key = (char *)ez_malloc(key_len + 1);
+    char *value = (char *)ez_malloc(value_len + 1);
+
+    // Copy the key and value into the allocated memory
+    strncpy(key, text, key_len);
+    key[key_len] = '\0';
+    strcpy(value, delimiter + 1);
+
+    if (var_sub)
+    {
+        char *new_value = sub_vars(value);
+        set_var(key, new_value);
+        free(new_value);
+    }
+    else
+    {
+        set_var(key, value);
+    }
+
+    // Free the allocated memory
+    free(key);
+    free(value);
+}
+
+
 void ini_parse(void *state, const char *key, const char *value)
 {   // Callback for INI parsing, also used in getopt.
     if (strcasecmp(key, "image") == 0)
     {
-        load_image(value);
+        imageFallback = ! load_image(value);
+    }
+    else if (strcasecmp(key, "image_fallback") == 0)
+    {
+        if (imageFallback)
+            imageFallback = ! load_image(value);
     }
     else if (strcasecmp(key, "image_position") == 0)
     {
@@ -382,7 +567,12 @@ void ini_parse(void *state, const char *key, const char *value)
     }
     else if (strcasecmp(key, "font") == 0)
     {
-        load_font(value);
+        fontFallback = ! load_font(value);
+    }
+    else if (strcasecmp(key, "font_fallback") == 0)
+    {
+        if (fontFallback)
+            fontFallback = ! load_font(value);
     }
     else if (strcasecmp(key, "font_size") == 0)
     {
@@ -426,10 +616,71 @@ void ini_parse(void *state, const char *key, const char *value)
     {
         keypressQuit = bool_parse(value, false);
     }
+    else if (strcasecmp(key, "set") == 0)
+    {
+        var_set_parse(value, true);
+    }
+    else if (strcasecmp(key, "set_strict") == 0)
+    {
+        var_set_parse(value, false);
+    }
     else
     {
         fprintf(stderr, "Unknown INI: %s = %s\n", key, value);
     }
+}
+
+
+void option_parse(void *state, const char *key, const char *value)
+{
+    set_var("id", key);
+
+    char *new_value = strdup(value);
+    if (new_value == NULL)
+        return;
+
+    char *token = strtok(new_value, ";;");
+
+    while (token != NULL)
+    {
+        fprintf(stderr, "- %s\n", token);
+        var_set_parse(token, true);
+
+        token = strtok(NULL, ";;");
+    }
+
+    free(new_value);
+
+    Option_List *option_item = (Option_List*)ez_malloc(sizeof(Option_List));
+
+    if (root_option == NULL)
+    {
+        // If the list is empty, initialize the root_option
+        root_option = option_item;
+        option_item->next = option_item;
+        option_item->prev = option_item;
+    }
+    else
+    {   
+        // Insert the new item at the end of the doubly linked list
+        Option_List *last = root_option->prev; // Get the last item in the list
+
+        // Set the new item pointers
+        option_item->next = root_option;      // New item points to the root
+        option_item->prev = last;              // New item points to the last item
+
+        // Update the last item and root item pointers
+        last->next = option_item;              // Last item points to the new item
+        root_option->prev = option_item;      // Root item points to the new item as the previous item
+    }
+
+    option_item->image_object = image_global_duplicate();
+    option_item->id = strdup(key);
+
+    root_image  = option_item->image_object;
+    root_option = option_item;
+
+    ini_read(displayTemplate, &ini_parse, NULL);
 }
 
 
@@ -444,7 +695,7 @@ SDL_Surface* render_text_wrapped(const char* text)
 
     while ((token = strtok_r(rest, "||", &rest)) && numLines < MAX_RENDER_LINES)
     {
-        lines[numLines++] = token;
+        lines[numLines++] = strdup(token);
     }
 
     // Calculate the widest surface
@@ -473,14 +724,14 @@ SDL_Surface* render_text_wrapped(const char* text)
 
     // Render each line of text onto the surface with alignment
     int yOffset = 0;
-    printf("render_text_wrapped:\n");
+    fprintf(stderr, "render_text_wrapped:\n");
     for (int i = 0; i < numLines; ++i)
     {
-        printf("- %s\n", lines[i]);
+        fprintf(stderr, "- %s\n", lines[i]);
         SDL_Surface* tempSurface = TTF_RenderText_Blended_Wrapped(globalFont, lines[i], (SDL_Color){255, 255, 255, 255}, maxWidth);
         if (!tempSurface)
         {
-            printf("Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError());
+            fprintf(stderr, "Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError());
             continue;
         }
 
@@ -508,13 +759,19 @@ SDL_Surface* render_text_wrapped(const char* text)
 }
 
 
-int load_image(const char *imageFile)
+bool load_image(const char *imageFile)
 {
     // Load image
-    char *imageRef = sub_env_vars(imageFile);
+    char *imageRef = sub_vars(imageFile);
 
     if (imageRef == NULL)
-        return 1;
+        return false;
+
+    if (!file_exists(imageRef))
+    {
+        fprintf(stderr, "load_image: %s: file doesn't exist.\n", imageRef);
+        return false;
+    }
 
     SDL_Surface *imageSurface = IMG_Load(imageRef);
     free(imageRef);
@@ -522,7 +779,7 @@ int load_image(const char *imageFile)
     if (imageSurface == NULL)
     {
         fprintf(stderr, "IMG: Couldn't load %s: %s\n", imageRef, IMG_GetError());
-        return 1;
+        return false;
     }
 
     SDL_Texture *imageTexture = SDL_CreateTextureFromSurface(renderer, imageSurface);
@@ -530,7 +787,7 @@ int load_image(const char *imageFile)
 
     if (imageSurface == NULL)
     {
-        return 1;
+        return false;
     }
 
     Image_Object *image = image_create();
@@ -540,7 +797,7 @@ int load_image(const char *imageFile)
     calculate_texture_size(image->imageTexture, &image->imageRect, imageSize);
     calculate_texture_rect(image->imageTexture, &image->imageRect, imagePosition);
 
-    return 0;
+    return true;
 }
 
 void font_size(int size)
@@ -557,14 +814,19 @@ void font_size(int size)
 }
 
 
-int load_font(const char *fontFile)
+bool load_font(const char *fontFile)
 {
     int scaleSize = (int)(float)((screenHeight / 480.0f) * (float)fontSize);
 
-    char *fontRef = sub_env_vars(fontFile);
+    char *fontRef = sub_vars(fontFile);
+
     if (fontRef == NULL)
+        return false;
+
+    if (!file_exists(fontRef))
     {
-        return 1;
+        fprintf(stderr, "load_font: %s: file doesn't exist.\n", fontRef);
+        return false;
     }
 
     TTF_Font *oldFont = globalFont;
@@ -575,7 +837,7 @@ int load_font(const char *fontFile)
         globalFont = oldFont;
 
         fprintf(stderr, "TTF: Couldn't load %s: %s\n", fontRef, TTF_GetError());
-        return 1;
+        return false;
     }
 
     if (oldFont != NULL)
@@ -586,22 +848,22 @@ int load_font(const char *fontFile)
 
     globalFontName = fontRef;
 
-    return 0;
+    return true;
 }
 
 
-int render_text(const char *text)
+bool render_text(const char *text)
 {
-    char *textRef = sub_env_vars(text);
+    char *textRef = sub_vars(text);
     if (textRef == NULL)
-        return 1;        
+        return false;        
 
     SDL_Surface *imageSurface = render_text_wrapped(textRef);
     if (imageSurface == NULL)
     {
         fprintf(stderr, "TTF: Couldn't render \"%s\" -> \"%s\": %s\n", text, textRef, IMG_GetError());
         free(textRef);
-        return 1;
+        return false;
     }
 
     free(textRef);
@@ -611,7 +873,7 @@ int render_text(const char *text)
 
     if (imageSurface == NULL)
     {
-        return 1;
+        return false;
     }
 
     Image_Object *dropImage = NULL;
@@ -641,7 +903,37 @@ int render_text(const char *text)
         dropImage->imageRect.h = image->imageRect.h;
     }
 
-    return 0;
+    return true;
+}
+
+
+Image_Object *image_global_duplicate()
+{
+    Image_Object *current = global_image;
+    Image_Object *object  = NULL;
+    Image_Object *result  = NULL;
+    Image_Object *last    = NULL;
+
+    while (current != NULL)
+    {
+        Image_Object *object = (Image_Object *)ez_malloc(sizeof(Image_Object));
+
+        memcpy(object, current, sizeof(Image_Object));
+
+        object->next = NULL;
+        object->duplicate = true;
+
+        if (last != NULL)
+            last->next = object;
+
+        if (result == NULL)
+            result = object;
+
+        last = current;
+        current = current->next;
+    }
+
+    return result;
 }
 
 
@@ -653,6 +945,13 @@ Image_Object *image_create()
     image->drawColor.g = 255;
     image->drawColor.b = 255;
     image->drawColor.a = 255;
+
+    image->duplicate = false;
+
+    if (global_image == NULL && root_option == NULL)
+    {
+        global_image = image;
+    }
 
     if (root_image == NULL)
     {
@@ -671,22 +970,54 @@ Image_Object *image_create()
     return image;
 }
 
+
 void image_quit()
 {
-    Image_Object *current = root_image;
-    Image_Object *next = NULL;
+    Image_Object *current_img = global_image;
+    Image_Object *next_img = NULL;
 
-    while (current != NULL)
+    while (current_img != NULL)
     {
-        next = current->next;
+        next_img = current_img->next;
 
-        if (current->imageTexture != NULL)
-            SDL_DestroyTexture(current->imageTexture);
+        if (!current_img->duplicate && current_img->imageTexture != NULL)
+            SDL_DestroyTexture(current_img->imageTexture);
 
-        free(current);
+        free(current_img);
 
-        current = next;
+        current_img = next_img;
     }
 
-    root_image = NULL;
+    if (root_option != NULL)
+    {
+        Option_List *current_opt = root_option;
+        Option_List *next_opt;
+
+        // Break the double linked list.
+        current_opt->prev->next = NULL;
+
+        while (current_opt)
+        {
+            next_opt = current_opt->next;
+
+            current_img = current_opt->image_object;
+
+            while (current_img != NULL)
+            {
+                next_img = current_img->next;
+
+                if (!current_img->duplicate && current_img->imageTexture != NULL)
+                    SDL_DestroyTexture(current_img->imageTexture);
+
+                free(current_img);
+
+                current_img = next_img;
+            }
+
+            free(current_opt->id);
+            free(current_opt);
+
+            current_opt = next_opt;
+        }
+    }
 }

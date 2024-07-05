@@ -44,19 +44,32 @@ enum
     ALIGN_RIGHT,
 };
 
+
 typedef struct _Image_Object
 {
     struct _Image_Object *next;
     SDL_Texture *imageTexture;
     SDL_Rect     imageRect;
     SDL_Color    drawColor;
+    bool         duplicate;
 } Image_Object;
+
+
+typedef struct _Option_List
+{
+    struct _Option_List *next;
+    struct _Option_List *prev;
+    char *id;
+    Image_Object *image_object;
+} Option_List;
 
 
 typedef void (*ini_callback)(void *state, const char *key, const char *value);
 
 // Globals
+extern Image_Object *global_image;
 extern Image_Object *root_image;
+extern Option_List *root_option;
 
 extern int screenWidth;
 extern int screenHeight;
@@ -78,24 +91,35 @@ extern SDL_Point dropShadowOffset;
 void *ez_malloc(size_t size);
 
 Image_Object *image_create();
+Image_Object *image_copy_stack();
+Image_Object *image_global_duplicate();
+
 void image_quit();
 
 int sdl_do_init();
 void sdl_do_quit();
 
+void var_set_parse(const char *text, bool var_sub);
 void ini_parse(void *state, const char *key, const char *value);
-void ini_read(const char *filename, ini_callback callback, void *state);
+void option_parse(void *state, const char *key, const char *value);
+int ini_read(const char *filename, ini_callback callback, void *state);
 
-int load_font(const char *fontFile);
+bool load_font(const char *fontFile);
 void font_size(int fontSize);
-int load_image(const char *imageFile);
-int render_text(const char *text);
+bool load_image(const char *imageFile);
+bool render_text(const char *text);
 
 void *ez_malloc(size_t size);
 int get_positon(const char *positon);
 int get_image_size(const char *size);
 int get_text_align(const char *text_align);
-char *sub_env_vars(const char *input);
+
+void init_vars();
+void quit_vars();
+void set_var(const char *name, const char *value);
+const char *get_var(const char *name);
+
+char *sub_vars(const char *input);
 
 void calculate_texture_rect(SDL_Texture *imageTexture, SDL_Rect *textureRect, int position);
 void calculate_texture_size(SDL_Texture *imageTexture, SDL_Rect *textureRect, int size);
@@ -106,5 +130,7 @@ bool strcasestartswith(const char *str, const char *prefix);
 bool strstartswith(const char *str, const char *prefix);
 bool strcaseendswith(const char *str, const char *suffix);
 bool strendswith(const char *str, const char *suffix);
+
+bool file_exists(const char *filename);
 
 #endif /* __SDL2IMGSHOW_H__ */

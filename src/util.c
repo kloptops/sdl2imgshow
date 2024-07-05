@@ -2,6 +2,16 @@
 
 #include "sdl2imgshow.h"
 
+typedef struct _var_opt
+{
+    struct _var_opt *next;
+    char *name;
+    char *value;
+} var_opt;
+
+
+var_opt *globalVars;
+
 
 void *ez_malloc(size_t size)
 {
@@ -19,13 +29,13 @@ void *ez_malloc(size_t size)
 
 
 // Simple INI reader function
-void ini_read(const char *filename, ini_callback callback, void *state)
+int ini_read(const char *filename, ini_callback callback, void *state)
 {
     FILE *file = fopen(filename, "r");
     if (file == NULL)
     {
-        printf("Error opening file: %s\n", filename);
-        return;
+        fprintf(stderr, "Error opening file: %s\n", filename);
+        return 1;
     }
 
     char line[1024];
@@ -79,9 +89,94 @@ void ini_read(const char *filename, ini_callback callback, void *state)
     }
 
     fclose(file);
+    return 0;
 }
 
-char *sub_env_vars(const char *input)
+
+bool file_exists(const char *filename)
+{
+    FILE *file = fopen(filename, "r");
+
+    if (file != NULL)
+    {
+        fclose(file);
+        return true;
+    }
+
+    return false;
+}
+
+
+void init_vars()
+{
+    globalVars=NULL;
+}
+
+
+void quit_vars()
+{
+    var_opt *current = globalVars;
+    var_opt *next;
+
+    while (current != NULL)
+    {
+        next = current->next;
+
+        free(current->name);
+        free(current->value);
+        free(current);
+
+        current = next;
+    }
+
+    globalVars = NULL;
+}
+
+
+void set_var(const char *name, const char *value)
+{
+    var_opt *current = globalVars;
+
+    fprintf(stderr, "%s = %s\n", name, value);
+
+    while (current != NULL)
+    {
+        if (strcasecmp(name, current->name) == 0)
+        {
+            free(current->value);
+            current->value = strdup(value);
+            return;
+        }
+
+        current = current->next;
+    }
+
+    current = (var_opt*)ez_malloc(sizeof(var_opt));
+    current->next = globalVars;
+    globalVars = current;
+
+    current->name  = strdup(name);
+    current->value = strdup(value);
+}
+
+
+const char *get_var(const char *name)
+{
+    var_opt *current = globalVars;
+
+    while (current != NULL)
+    {
+        if (strcasecmp(current->name, name) == 0)
+            return current->value;
+
+        current = current->next;
+    }
+
+    return getenv(name);
+}
+
+
+char *sub_vars(const char *input)
 {
     char* output = NULL;
     const char *start = input;
@@ -104,20 +199,26 @@ char *sub_env_vars(const char *input)
         if (output == NULL)
         {
             output = strndup(input, start - input - 2);
+            fprintf(stderr, "* %s\n", output);
         }
         else
         {
             output = realloc(output, strlen(output) + (start - input - 2) + 1);
+            // TODO: FIX THIS.
             strcat(output, strndup(input, start - input - 2));
         }
 
         // Extract the variable name
         char* varName = strndup(start, end - start);
 
+        fprintf(stderr, "= %s\n", output);
+        fprintf(stderr, "> %s\n", varName);
+
         // Get the environment variable
-        char* envValue = getenv(varName);
+        const char* envValue = get_var(varName);
         if (envValue != NULL)
         {
+            fprintf(stderr, "> %s\n", envValue);
             // Append the environment variable value
             output = realloc(output, strlen(output) + strlen(envValue) + 1);
             strcat(output, envValue);
@@ -128,7 +229,7 @@ char *sub_env_vars(const char *input)
             output = realloc(output, strlen(output) + 1);
             strcat(output, "");
         }
-        
+
         free(varName);
         
         // Move past the }} for the next iteration
@@ -183,6 +284,7 @@ int get_positon(const char *position)
     return POS_CENTER;
 }
 
+
 int get_image_size(const char *size)
 {
     if (strcasecmp(size, "fit") == 0)
@@ -200,6 +302,7 @@ int get_image_size(const char *size)
     return SIZE_VERTICAL;
 }
 
+
 int get_text_align(const char *text_align)
 {
     if (strcasecmp(text_align, "left") == 0)
@@ -213,6 +316,7 @@ int get_text_align(const char *text_align)
 
     return ALIGN_LEFT;
 }
+
 
 void calculate_texture_size(SDL_Texture *imageTexture, SDL_Rect *textureRect, int size)
 {
@@ -329,6 +433,7 @@ void calculate_texture_rect(SDL_Texture *imageTexture, SDL_Rect *textureRect, in
     }
 }
 
+
 bool strendswith(const char *str, const char *suffix)
 {
     if (!str || !suffix)
@@ -364,10 +469,12 @@ bool strstartswith(const char *str, const char *prefix)
     return strncmp(prefix, str, strlen(prefix)) == 0;
 }
 
+
 bool strcasestartswith(const char *str, const char *prefix)
 {
     return strncasecmp(prefix, str, strlen(prefix)) == 0;
 }
+
 
 int strcasecmp(const char *s1, const char *s2)
 {
@@ -387,6 +494,7 @@ int strcasecmp(const char *s1, const char *s2)
 
     return *s1 - *s2;
 }
+
 
 int strncasecmp(const char *s1, const char *s2, size_t n)
 {
