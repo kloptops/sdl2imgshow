@@ -28,6 +28,35 @@ void *ez_malloc(size_t size)
 }
 
 
+char *ez_strcatn(char *str1, const char *str2, size_t str2_len)
+{
+    size_t str1_len;
+
+    if (str1 == NULL)
+    {
+        str1_len = 0;
+        str1 = (char*)ez_malloc(str2_len + 1);
+    }
+    else
+    {
+        str1_len = strlen(str1);
+        str1 = (char*)realloc(str1, str1_len + str2_len + 1);
+
+        if (str1 == NULL)
+        {
+            fprintf(stderr, "Unable to allocate memory. :(\n");
+            exit(255);
+        }
+    }
+
+    memcpy(str1 + str1_len, str2, str2_len);
+
+    str1[str1_len + str2_len] = 0;
+
+    return str1;
+}
+
+
 // Simple INI reader function
 int ini_read(const char *filename, ini_callback callback, void *state)
 {
@@ -177,76 +206,65 @@ const char *get_var(const char *name)
 
 
 char *sub_vars(const char *input)
-{
-    char* output = NULL;
-    const char *start = input;
-    const char *end;
-    const char *last;
+{   // substitute vars enclosed in {{}}.
+    char *output = NULL;
 
-    while ((start = strstr(start, "{{")))
+    const char *last = input;
+    const char *start = strstr(last, "{{");
+    const char *end = NULL;
+
+    fprintf(stderr, "> \"%s\"\n", input);
+
+    while (start != NULL)
     {
-        start += 2; // Move past {{
+        if (start > last)
+        {   // copy any text we have just skipped over.
+            output = ez_strcatn(output, last, start - last);
+        }
+
         end = strstr(start, "}}");
 
         if (end == NULL)
-        {
-            last = start;
-            // No closing }}
+        {   // no closing terminator, copy everything from `start` forwards.
+            size_t rest = strlen(start);
+            output = ez_strcatn(output, start, rest);
+            last = start + rest;
             break;
         }
 
-        // Copy the part before the variable
-        if (output == NULL)
-        {
-            output = strndup(input, start - input - 2);
-            fprintf(stderr, "* %s\n", output);
+        start += 2;
+
+        // extract the variable name, and the variable value if it exists.
+        char *var_name = ez_strcatn(NULL, start, end - start);
+        const char* var_value = get_var(var_name);
+
+        fprintf(stderr, "= \"%s\" = ", var_name);
+
+        if (var_value != NULL)
+        {   // concatenate the variable value
+            fprintf(stderr, "\"%s\"\n", var_value);
+            output = ez_strcatn(output, var_value, strlen(var_value));
         }
         else
-        {
-            output = realloc(output, strlen(output) + (start - input - 2) + 1);
-            // TODO: FIX THIS.
-            strcat(output, strndup(input, start - input - 2));
+        {   // concatenate the variable name because what else am i supposed to do?
+            fprintf(stderr, "(null)\n");
+            output = ez_strcatn(output, var_name, strlen(var_name));
         }
 
-        // Extract the variable name
-        char* varName = strndup(start, end - start);
+        free(var_name);
 
-        fprintf(stderr, "= %s\n", output);
-        fprintf(stderr, "> %s\n", varName);
+        end += 2;
 
-        // Get the environment variable
-        const char* envValue = get_var(varName);
-        if (envValue != NULL)
-        {
-            fprintf(stderr, "> %s\n", envValue);
-            // Append the environment variable value
-            output = realloc(output, strlen(output) + strlen(envValue) + 1);
-            strcat(output, envValue);
-        }
-        else
-        {
-            // Variable not found, append empty string
-            output = realloc(output, strlen(output) + 1);
-            strcat(output, "");
-        }
-
-        free(varName);
-        
-        // Move past the }} for the next iteration
-        start = end + 2;
-        last = start;
+        last = end;
+        start = strstr(end, "{{");
     }
 
-    // Copy the remaining part of the string
-    if (output == NULL)
-    {
-        output = strdup(input);
+    if (last[0] != 0)
+    {   // copy anything else left.
+        output = ez_strcatn(output, last, strlen(last));
     }
-    else
-    {
-        output = realloc(output, strlen(output) + strlen(last) + 1);
-        strcat(output, last);
-    }
+
+    fprintf(stderr, "< \"%s\"\n", output);
 
     return output;
 }
@@ -380,6 +398,8 @@ void calculate_texture_size(SDL_Texture *imageTexture, SDL_Rect *textureRect, in
 
 void calculate_texture_rect(SDL_Texture *imageTexture, SDL_Rect *textureRect, int position)
 {
+    UNUSED(imageTexture);
+
     // Calculate X position based on the position enum
     switch (position)
     {

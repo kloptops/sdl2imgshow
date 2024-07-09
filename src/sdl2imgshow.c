@@ -8,13 +8,40 @@ Option_List *root_option = NULL;
 
 int screenWidth   = 640;
 int screenHeight  = 480;
+
+typedef struct
+{
+    int imageSize;
+    int imagePosition;
+    int textPosition;
+    int textAlignment;
+    int fontSize;
+
+    bool dropShadow;
+    bool disableFontScale;
+    char *globalFontName;
+    SDL_Rect  globalMargins;
+    SDL_Color textColor;
+    SDL_Color dropShadowColor;
+    SDL_Point dropShadowOffset;
+} system_state;
+
 int imageSize     = SIZE_VERTICAL;
 int imagePosition = POS_MIDLEFT;
 int textPosition  = POS_CENTER;
 int textAlignment = ALIGN_LEFT;
 int fontSize      = 32;
 
-bool dropShadow   = false;
+bool disableFontScale = false; // for Cizia
+bool dropShadow       = false;
+
+char *globalFontName       = NULL;
+TTF_Font *globalFont       = NULL;
+SDL_Rect  globalMargins    = {0, 0, 0, 0};
+SDL_Color textColor        = {0, 0, 0, 255};
+SDL_Color dropShadowColor  = {125, 125, 125, 255};
+SDL_Point dropShadowOffset = {10, 10};
+
 bool imageFallback = false;
 bool fontFallback  = false;
 
@@ -23,13 +50,6 @@ bool waitQuit     = false;   // wait for a button press to quit
 bool keypressQuit = false;    // wait until 30 presses have been done to quit
 
 bool wantQuiet    = false;    // wait quietly
-
-char *globalFontName       = NULL;
-TTF_Font *globalFont       = NULL;
-SDL_Rect  globalMargins    = {0, 0, 0, 0};
-SDL_Color textColor        = {0, 0, 0, 255};
-SDL_Color dropShadowColor  = {125, 125, 125, 255};
-SDL_Point dropShadowOffset = {10, 10};
 
 SDL_Window   *window   = NULL;
 SDL_Renderer *renderer = NULL;
@@ -40,9 +60,69 @@ char processWatchCmd[1024] = "";
 bool processWatch = false;
 
 
+void save_state(system_state *state);
+void restore_state(system_state *state);
+
 void print_usage()
 {
-    fprintf(stderr, "Usage: sdl2imgshow [-z <config_file.ini>] [-i <image_file>] [-p text_positon] [-f <font_file>] [-c <R,G,B>] [-d <R,G,B>] [-o x,y] [-s <font_size>] [-t <text>] [-q] [-b <process>]\n");
+    // generate with: grep '//= -\w' src/sdl2imgshow.c | cut -d'=' -f 2- | cut -d':' -f 1 | while read line; printf " [$line]"; end; echo ""
+    fprintf(stderr, "Usage: [ -z <config_file>] [ -T <display_template>] [ -F <game_id>] [ -G <option_file.ini>] [ -i <image_file>] [ -a <text_alignment>] [ -f <font_file>] [ -t <text>] [ -c <colour>] [ -P <image_positon>] [ -S <image_stretch>] [ -s <font_size>] [ -p <text_position>] [ -d <shadow_color>] [ -o <shadow_offset>] [ -D] [ -q] [ -k] [ -W] [ -W] [ -O] [ -b <process_name>] [ -x <key=value>]\n\n");
+
+    // generate with: grep '//= -\w' src/sdl2imgshow.c | cut -d'=' -f 2- | while read line; echo "        \"   $line\n\""; end
+    fprintf(stderr,
+        "Command line help:\n\n"
+        "    -z <config_file>:          config file\n"
+        "    -T <display_template>:     display template for game select mode\n"
+        "    -F <game_id>:              default game selected\n"
+        "    -G <option_file.ini>:      option files file.\n"
+        "    -i <image_file>:           load an image and add it to the stack\n"
+        "    -a <text_alignment>:       set text alignment\n"
+        "    -f <font_file>:            load font.\n"
+        "    -t <text>:                 render text to the display.\n"
+        "    -c <colour>:               set text_color\n"
+        "    -P <image_positon>:        set image_position mode\n"
+        "    -S <image_stretch>:        set image_stretch mode\n"
+        "    -s <font_size>:            set the current font size.\n"
+        "    -p <text_position>:        set text_positon.\n"
+        "    -d <shadow_color>:         sets drop shadow colour, enables drop shadows.\n"
+        "    -o <shadow_offset>:        sets shadow_offset for the drop shadow.\n"
+        "    -D:                        disable drop shadow.\n"
+        "    -q:                        quit immediately mode.\n"
+        "    -k:                        keypress quit mode.\n"
+        "    -W:                        wait quit mode.\n"
+        "    -W:                        quiet mode.\n"
+        "    -O:                        disable font scaling to screen size.\n"
+        "    -b <process_name>:         watch for process_name, quit if it is running.\n"
+        "    -x <key=value>:            set a variable, the value supports variable substitution.\n"
+        "    -X <key=value>:            set a variable, the value doesn't support variable substitution.\n"
+        "\n\n"
+        );
+
+    fprintf(stderr,
+        "INI help:\n\n"
+        "image=<image_file>: Load an image.\n"
+        "image_fallback=<image_file>: Load an image if the previous image or image_fallback failed to load.\n"
+        "text_position=<position>: sets the position of images loaded.\n"
+        "image_stretch=<stretch>: Sets the stretch mode of images loaded.\n"
+        "text_position=<position>: sets the position of the text rendered to the screen from now on.\n"
+        "screen_margin=<x>,<y>,<w>,<h>: Sets the margin for anything loaded from now on.\n"
+        "font=<font_file>: Load a font file.\n"
+        "font_fallback=<font_file>: Load a font if the previous font or font_fallback failed to load.\n"
+        "font_size=<size>: Sets the font size, if any fonts are loaded they will be reloaded with this size.\n"
+        "text=<text>: Renders text using the current font, font size, font color and shadow settings.\n"
+        "text_color=<r>,<g>,<b>: Sets the text colour to r,g,b.\n"
+        "shadow_color=<r>,<g>,<b>: Sets the drop shadow colour to r,g,b. Enables drop shadows.\n"
+        "shadow=<int>,<int>: Sets the offset of the dropshadow by x/y. Enables drop shadows.\n"
+        "shadow=<bool>: Enable/Disable drop shadow for rendered text\n"
+        "quiet=<bool>: Enable/Disable wait quiet mode.\n"
+        "quit=<bool>: Enable/Disable wait quit mode.\n"
+        "wait_quit=<bool>: Enable/Disable wait quit mode.\n"
+        "keypress_quit=<bool>: Enables/Disables keypress_quit mode\n"
+        "set=<key>=<value>: Sets a variable, allows variable substitution.\n"
+        "set_strict=<key>=<value>: Sets a variable, does not allow variable substitution.\n"
+        "disable_font_scale=<bool>: Enables/Disables font scaling to screen height. true = disable\n"
+        "\n\n"
+        );
 }
 
 
@@ -96,130 +176,137 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    image_init();
+
     int opt=0;
     bool finished = false;
     bool option_select_mode=false;
     const char *option_select_file=NULL;
     const char *default_select=NULL;
 
-    while (!finished && (opt = getopt(argc, argv, "z:i:f:t:c:s:d:o:a:S:q:Dp:k:w:W:b:T:F:G:x:X:")) != -1)
+    while (!finished && (opt = getopt(argc, argv, "ODqkwWz:i:f:t:c:s:d:o:a:S:p:b:T:F:G:x:X:")) != -1)
     {
         switch (opt)
         {
         case 'z':
-            // -z <config_file>: config file
+            //= -z <config_file>: config file
             ini_read(optarg, &ini_parse, NULL);
             break;
 
         case 'T':
-            // -T <display_template>: display template for game select mode
+            //= -T <display_template>: display template for game select mode
             displayTemplate=optarg;
             break;
 
         case 'F':
-            // -F <game_id>: default game selected
+            //= -F <game_id>: default game selected
             default_select=optarg;
             break;
 
         case 'G':
-            // -G <option_file.ini>: option files file.
+            //= -G <option_file.ini>: option files file.
             option_select_mode=true;
             option_select_file=optarg;
             break;
 
         case 'i':
-            // -i <image_file>: load an image and add it to the stack
+            //= -i <image_file>: load an image and add it to the stack
             ini_parse(NULL, "image", optarg);
             break;
 
         case 'a':
-            // -a <text_alignment>: set text alignment
+            //= -a <text_alignment>: set text alignment
             ini_parse(NULL, "text_align", optarg);
             break;
 
         case 'f':
-            // -f <font_file>: load font.
+            //= -f <font_file>: load font.
             ini_parse(NULL, "font", optarg);
             break;
 
         case 't':
-            // -t <text>: render text to the display.
+            //= -t <text>: render text to the display.
             ini_parse(NULL, "text", optarg);
             break;
 
         case 'c':
-            // -c <colour>: set text_color
+            //= -c <colour>: set text_color
             ini_parse(NULL, "text_color", optarg);
             break;
 
         case 'P':
-            // -P <image_positon>: set image_position mode
+            //= -P <image_positon>: set image_position mode
             ini_parse(NULL, "image_position", optarg);
             break;
 
         case 'S':
-            // -S <image_stretch>: set image_stretch mode
+            //= -S <image_stretch>: set image_stretch mode
             ini_parse(NULL, "image_stretch", optarg);
             break;
 
         case 's':
-            // -s <font_size>: set the current font size.
+            //= -s <font_size>: set the current font size.
             ini_parse(NULL, "font_size", optarg);
             break;
 
         case 'p':
-            // -p <text_position>: set text_positon.
+            //= -p <text_position>: set text_positon.
             ini_parse(NULL, "text_position", optarg);
             break;
 
         case 'd':
-            // -d <shadow_color>: sets drop shadow colour, enables drop shadows.
+            //= -d <shadow_color>: sets drop shadow colour, enables drop shadows.
             ini_parse(NULL, "shadow_color", optarg);
             break;
 
         case 'o':
-            // -o <shadow_offset>: sets shadow_offset for the drop shadow.
+            //= -o <shadow_offset>: sets shadow_offset for the drop shadow.
             ini_parse(NULL, "shadow_offset", optarg);
             break;
 
         case 'D':
-            // -D: disable drop shadow.
+            //= -D: disable drop shadow.
             ini_parse(NULL, "shadow", "n");
             break;
 
         case 'q':
-            // -q: quit immediately mode.
-            ini_parse(NULL, "quit", optarg);
+            //= -q: quit immediately mode.
+            ini_parse(NULL, "quit", "y");
             break;
 
         case 'k':
-            // -k: keypress quit mode.
-            ini_parse(NULL, "keypress_quit", optarg);
+            //= -k: keypress quit mode.
+            ini_parse(NULL, "keypress_quit", "y");
             break;
 
         case 'w':
-            // -W: wait quit mode.
-            ini_parse(NULL, "wait_quit", optarg);
+            //= -W: wait quit mode.
+            ini_parse(NULL, "wait_quit", "y");
             break;
 
         case 'W':
-            // -W: quiet mode.
-            ini_parse(NULL, "quiet", optarg);
+            //= -W: quiet mode.
+            ini_parse(NULL, "quiet", "y");
+            break;
+
+        case 'O':
+            //= -O: disable font scaling to screen size.
+            ini_parse(NULL, "disable_font_scale", "y");
             break;
 
         case 'b':
-            // -b <process_name>: watch for process_name, quit if it is running.
-            snprintf(processWatchCmd, sizeof(processWatch), "pgrep '%s'", optarg);
+            //= -b <process_name>: watch for process_name, quit if it is running.
+            snprintf(processWatchCmd, sizeof(processWatchCmd), "pgrep '%s'", optarg);
             processWatch = true;
             break;
 
         case 'x':
-            // -x <key=value>: set a variable, the value supports variable substitution.
+            //= -x <key=value>: set a variable, the value supports variable substitution.
             var_set_parse(optarg, true);
             break;
 
         case 'X':
-            // -X <key=value>: set a variable, the value doesn't support variable substitution.
+            //- -X <key=value>: set a variable, the value doesn't support variable substitution.
             var_set_parse(optarg, false);
             break;
 
@@ -306,8 +393,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "= %s\n", root_option->id);
     }
 
-    const char* db_file = NULL;
-    if (db_file = SDL_getenv("SDL_GAMECONTROLLERCONFIG_FILE"))
+    const char* db_file = SDL_getenv("SDL_GAMECONTROLLERCONFIG_FILE");
+    if (db_file != NULL)
     {
         SDL_GameControllerAddMappingsFromFile(db_file);
     }
@@ -329,6 +416,33 @@ int main(int argc, char *argv[])
 
                 if (keypressQuit && keypressQuitCount > 30)
                     quit = 1;
+
+                if (option_select_mode)
+                {
+                    switch (event.cbutton.button)
+                    {
+                    case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+                    case SDL_CONTROLLER_BUTTON_DPAD_UP:
+                        root_option = root_option->prev;
+                        root_image = root_option->image_object;
+                        break;
+
+                    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+                    case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+                        root_option = root_option->next;
+                        root_image = root_option->image_object;
+                        break;
+
+                    case SDL_CONTROLLER_BUTTON_A:
+                        printf("%s\n", root_option->id);
+                        quit = 1;
+                        break;
+
+                    case SDL_CONTROLLER_BUTTON_B:
+                        quit = 1;
+                        break;
+                    }
+                }
                 break;
 
             case SDL_CONTROLLERBUTTONUP:
@@ -339,7 +453,7 @@ int main(int argc, char *argv[])
 
             case SDL_CONTROLLERDEVICEADDED:
                 {
-                    SDL_GameController* controller = SDL_GameControllerOpen(event.cdevice.which);
+                    SDL_GameControllerOpen(event.cdevice.which);
                 }
                 break;
             case SDL_CONTROLLERDEVICEREMOVED:
@@ -362,13 +476,15 @@ int main(int argc, char *argv[])
 
         if (!doneRender)
         {
-            fprintf(stderr, "loop\n");
+            // fprintf(stderr, "loop\n");
             // Clear screen
-            SDL_RenderClear(renderer);
+            // SDL_RenderClear(renderer);
 
             // Render Textures
             while (current != NULL)
-            {
+            {   
+                // fprintf(stderr, "- %p\n", current);
+
                 if (current->imageTexture != NULL)
                 {
                     SDL_SetTextureColorMod(
@@ -540,89 +656,98 @@ void var_set_parse(const char *text, bool var_sub)
 
 void ini_parse(void *state, const char *key, const char *value)
 {   // Callback for INI parsing, also used in getopt.
+    UNUSED(state);
+
     if (strcasecmp(key, "image") == 0)
-    {
+    {   //: image=<image_file>: Load an image.
         imageFallback = ! load_image(value);
     }
     else if (strcasecmp(key, "image_fallback") == 0)
-    {
+    {   //: image_fallback=<image_file>: Load an image if the previous image or image_fallback failed to load.
         if (imageFallback)
             imageFallback = ! load_image(value);
     }
     else if (strcasecmp(key, "image_position") == 0)
-    {
+    {   //: text_position=<position>: sets the position of images loaded.
         imagePosition = get_positon(value);
     }
     else if (strcasecmp(key, "image_stretch") == 0)
-    {
+    {   //: image_stretch=<stretch>: Sets the stretch mode of images loaded.
         imageSize = get_image_size(value);
     }
     else if (strcasecmp(key, "text_position") == 0)
-    {
+    {   //: text_position=<position>: sets the position of the text rendered to the screen from now on.
         textPosition = get_positon(value);
     }
     else if (strcasecmp(key, "screen_margin") == 0)
-    {
+    {   //: screen_margin=<x>,<y>,<w>,<h>: Sets the margin for anything loaded from now on.
         sscanf(value, "%d,%d,%d,%d", &globalMargins.x, &globalMargins.y, &globalMargins.w, &globalMargins.h);
     }
     else if (strcasecmp(key, "font") == 0)
-    {
+    {   //: font=<font_file>: Load a font file.
         fontFallback = ! load_font(value);
     }
     else if (strcasecmp(key, "font_fallback") == 0)
-    {
+    {   //: font_fallback=<font_file>: Load a font if the previous font or font_fallback failed to load.
         if (fontFallback)
             fontFallback = ! load_font(value);
     }
     else if (strcasecmp(key, "font_size") == 0)
-    {
+    {   //: font_size=<size>: Sets the font size, if any fonts are loaded they will be reloaded with this size.
         font_size(atoi(value));
     }
     else if (strcasecmp(key, "text") == 0)
-    {
+    {   //: text=<text>: Renders text using the current font, font size, font color and shadow settings.
         render_text(value);
     }
     else if (strcasecmp(key, "text_color") == 0)
-    {
-        sscanf(value, "%d,%d,%d", &textColor.r, &textColor.g, &textColor.b);
+    {   //: text_color=<r>,<g>,<b>: Sets the text colour to r,g,b.
+        sscanf(value, "%hhu,%hhu,%hhu", &textColor.r, &textColor.g, &textColor.b);
     }
     else if (strcasecmp(key, "shadow_color") == 0)
-    {
-        sscanf(value, "%d,%d,%d", &dropShadowColor.r, &dropShadowColor.g, &dropShadowColor.b);
+    {   //: shadow_color=<r>,<g>,<b>: Sets the drop shadow colour to r,g,b. Enables drop shadows.
+        sscanf(value, "%hhu,%hhu,%hhu", &dropShadowColor.r, &dropShadowColor.g, &dropShadowColor.b);
         dropShadow=true;
     }
     else if (strcasecmp(key, "shadow_offset") == 0)
-    {
+    {   //: shadow=<int>,<int>: Sets the offset of the dropshadow by x/y. Enables drop shadows.
         sscanf(value, "%d,%d", &dropShadowOffset.x, &dropShadowOffset.y);
         dropShadow=true;
     }
     else if (strcasecmp(key, "shadow") == 0)
-    {
+    {   //: shadow=<bool>: Enable/Disable drop shadow for rendered text
         dropShadow = bool_parse(value, false);
     }
     else if (strcasecmp(key, "quiet") == 0)
-    {
+    {   //: quiet=<bool>: Enable/Disable wait quiet mode.
         wantQuiet = bool_parse(value, false);
     }
     else if (strcasecmp(key, "quit") == 0)
-    {
+    {   //: quit=<bool>: Enable/Disable wait quit mode.
         wantQuit = bool_parse(value, false);
     }
     else if (strcasecmp(key, "wait_quit") == 0)
-    {
+    {   //: wait_quit=<bool>: Enable/Disable wait quit mode.
         waitQuit = bool_parse(value, false);
     }
     else if (strcasecmp(key, "keypress_quit") == 0)
-    {
+    {   //: keypress_quit=<bool>: Enables/Disables keypress_quit mode
         keypressQuit = bool_parse(value, false);
     }
     else if (strcasecmp(key, "set") == 0)
-    {
+    {   //: set=<key>=<value>: Sets a variable, allows variable substitution.
         var_set_parse(value, true);
     }
     else if (strcasecmp(key, "set_strict") == 0)
-    {
+    {   //: set_strict=<key>=<value>: Sets a variable, does not allow variable substitution.
         var_set_parse(value, false);
+    }
+    else if (strcasecmp(key, "disable_font_scale") == 0)
+    {   //: disable_font_scale=<bool>: Enables/Disables font scaling to screen height. true = disable
+        disableFontScale = bool_parse(value, false);
+
+        if (globalFontName != NULL)
+            load_font(globalFontName);
     }
     else
     {
@@ -631,8 +756,56 @@ void ini_parse(void *state, const char *key, const char *value)
 }
 
 
+void save_state(system_state *state)
+{
+    state->imageSize     = imageSize;
+    state->imagePosition = imagePosition;
+    state->textPosition  = textPosition;
+    state->textAlignment = textAlignment;
+    state->fontSize      = fontSize;
+
+    state->dropShadow       = dropShadow;
+    state->disableFontScale = disableFontScale;
+
+    if (globalFontName != NULL)
+        state->globalFontName = strdup(globalFontName);
+    else
+        state->globalFontName = NULL;
+
+    ASSIGN_RECT(state->globalMargins,     globalMargins);
+    ASSIGN_COLOR(state->textColor,        textColor);
+    ASSIGN_COLOR(state->dropShadowColor,  dropShadowColor);
+    ASSIGN_POINT(state->dropShadowOffset, dropShadowOffset);
+}
+
+void restore_state(system_state *state)
+{
+    imageSize     = state->imageSize;
+    imagePosition = state->imagePosition;
+    textPosition  = state->textPosition;
+    textAlignment = state->textAlignment;
+    fontSize      = state->fontSize;
+
+    dropShadow       = state->dropShadow;
+    disableFontScale = state->disableFontScale;
+
+    if (state->globalFontName != NULL)
+    {
+        load_font(state->globalFontName);
+        free(state->globalFontName);
+    }
+
+    ASSIGN_RECT(globalMargins,     state->globalMargins);
+    ASSIGN_COLOR(textColor,        state->textColor);
+    ASSIGN_COLOR(dropShadowColor,  state->dropShadowColor);
+    ASSIGN_POINT(dropShadowOffset, state->dropShadowOffset);
+}
+
+
 void option_parse(void *state, const char *key, const char *value)
 {
+    UNUSED(state);
+
     set_var("id", key);
 
     char *new_value = strdup(value);
@@ -661,7 +834,7 @@ void option_parse(void *state, const char *key, const char *value)
         option_item->prev = option_item;
     }
     else
-    {   
+    {
         // Insert the new item at the end of the doubly linked list
         Option_List *last = root_option->prev; // Get the last item in the list
 
@@ -677,10 +850,16 @@ void option_parse(void *state, const char *key, const char *value)
     option_item->image_object = image_global_duplicate();
     option_item->id = strdup(key);
 
+    Image_Object *old_root = root_image;
     root_image  = option_item->image_object;
     root_option = option_item;
 
+    system_state sys_state;
+    save_state(&sys_state);
     ini_read(displayTemplate, &ini_parse, NULL);
+    restore_state(&sys_state);
+
+    root_image = old_root;
 }
 
 
@@ -816,7 +995,16 @@ void font_size(int size)
 
 bool load_font(const char *fontFile)
 {
-    int scaleSize = (int)(float)((screenHeight / 480.0f) * (float)fontSize);
+    int scaleSize;
+
+    if (disableFontScale)
+    {
+        scaleSize = fontSize;
+    }
+    else
+    {
+        scaleSize = (int)(float)((screenHeight / 480.0f) * (float)fontSize);
+    } 
 
     char *fontRef = sub_vars(fontFile);
 
@@ -856,7 +1044,13 @@ bool render_text(const char *text)
 {
     char *textRef = sub_vars(text);
     if (textRef == NULL)
-        return false;        
+        return false;
+
+    if (globalFont == NULL)
+    {
+        fprintf(stderr, "Error: no fonts loaded.\n");
+        return false;
+    }
 
     SDL_Surface *imageSurface = render_text_wrapped(textRef);
     if (imageSurface == NULL)
@@ -910,7 +1104,6 @@ bool render_text(const char *text)
 Image_Object *image_global_duplicate()
 {
     Image_Object *current = global_image;
-    Image_Object *object  = NULL;
     Image_Object *result  = NULL;
     Image_Object *last    = NULL;
 
@@ -970,6 +1163,11 @@ Image_Object *image_create()
     return image;
 }
 
+void image_init()
+{
+    // Create the root object. It does nothing. :D
+    image_create();
+}
 
 void image_quit()
 {

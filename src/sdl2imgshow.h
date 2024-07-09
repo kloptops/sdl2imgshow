@@ -11,6 +11,32 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_ttf.h>
 
+#define UNUSED(x) (void)(x)
+
+
+#define ASSIGN_RECT(to_var, from_var) \
+    { \
+        to_var.x = from_var.x; \
+        to_var.y = from_var.y; \
+        to_var.w = from_var.w; \
+        to_var.h = from_var.h; \
+    }
+
+#define ASSIGN_COLOR(to_var, from_var) \
+    { \
+        to_var.r = from_var.r; \
+        to_var.g = from_var.g; \
+        to_var.b = from_var.b; \
+        to_var.a = from_var.a; \
+    }
+
+#define ASSIGN_POINT(to_var, from_var) \
+    {\
+        to_var.x = from_var.x; \
+        to_var.y = from_var.y; \
+    }
+
+
 // Types
 enum
 {
@@ -94,6 +120,7 @@ Image_Object *image_create();
 Image_Object *image_copy_stack();
 Image_Object *image_global_duplicate();
 
+void image_init();
 void image_quit();
 
 int sdl_do_init();
@@ -110,6 +137,8 @@ bool load_image(const char *imageFile);
 bool render_text(const char *text);
 
 void *ez_malloc(size_t size);
+char *ez_strcatn(char *str1, const char *str2, size_t str2_len);
+
 int get_positon(const char *positon);
 int get_image_size(const char *size);
 int get_text_align(const char *text_align);

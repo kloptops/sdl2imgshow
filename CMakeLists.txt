@@ -3,6 +3,8 @@ project(sdl2imgshow)
 
 set(CMAKE_C_STANDARD 11)
 
+add_compile_options(-Wall -Wextra -pedantic -Werror)
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
 # Find SDL2
