@@ -184,7 +184,7 @@ int main(int argc, char *argv[])
     const char *option_select_file=NULL;
     const char *default_select=NULL;
 
-    while (!finished && (opt = getopt(argc, argv, "ODqkwWz:i:f:t:c:s:d:o:a:S:p:b:T:F:G:x:X:")) != -1)
+    while (!finished && (opt = getopt(argc, argv, "z:T:F:G:i:a:f:t:c:P:S:s:p:d:o:DqkwWOb:x:X:")) != -1)
     {
         switch (opt)
         {
@@ -364,7 +364,7 @@ int main(int argc, char *argv[])
             SDL_DestroyWindow(window);
 
             sdl_do_quit();
-            return EXIT_FAILURE;            
+            return EXIT_FAILURE;
         }
 
         if (default_select != NULL)
@@ -482,7 +482,7 @@ int main(int argc, char *argv[])
 
             // Render Textures
             while (current != NULL)
-            {   
+            {
                 // fprintf(stderr, "- %p\n", current);
 
                 if (current->imageTexture != NULL)
@@ -1004,7 +1004,7 @@ bool load_font(const char *fontFile)
     else
     {
         scaleSize = (int)(float)((screenHeight / 480.0f) * (float)fontSize);
-    } 
+    }
 
     char *fontRef = sub_vars(fontFile);
 

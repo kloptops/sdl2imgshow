@@ -317,6 +317,9 @@ int get_image_size(const char *size)
     if (strcasecmp(size, "original") == 0)
         return SIZE_ORIGINAL;
 
+    if (strcasecmp(size, "stretch") == 0)
+        return SIZE_STRETCH;
+
     return SIZE_VERTICAL;
 }
 
@@ -345,21 +348,21 @@ void calculate_texture_size(SDL_Texture *imageTexture, SDL_Rect *textureRect, in
     // Set initial width and height
     int textureWidth = originalWidth;
     int textureHeight = originalHeight;
+    int rectWidth;
+    int rectHeight;
 
     // Calculate new width and height based on size enum
     switch (size)
     {
     case SIZE_FIT:
         // Fit the texture within screen dimensions while considering margins
-        if (originalWidth > screenWidth - globalMargins.x - globalMargins.w)
-        {
-            textureWidth = screenWidth - globalMargins.x - globalMargins.w;
-            textureHeight = (originalHeight * textureWidth) / originalWidth;
-        }
-        if (textureHeight > screenHeight - globalMargins.y - globalMargins.h)
-        {
-            textureHeight = screenHeight - globalMargins.y - globalMargins.h;
-            textureWidth = (originalWidth * textureHeight) / originalHeight;
+        rectWidth = screenWidth - globalMargins.x - globalMargins.w;
+        rectHeight = screenHeight - globalMargins.y - globalMargins.h;
+        textureWidth = rectWidth;
+        textureHeight = textureWidth * originalHeight / originalWidth;
+        if (textureHeight > rectHeight) {
+          textureHeight = rectHeight;
+          textureWidth = textureHeight * originalWidth / originalHeight;
         }
         break;
 
